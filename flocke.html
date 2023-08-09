@@ -1,0 +1,342 @@
+<!doctype html>
+<html lang="ja" style="background-color: #27292d;">
+  <head>
+    <meta name="robots" content="noindex,nofollow,noarchive" />
+    <meta charset="UTF-8"/>
+    <meta http-equiv="content-language" content="ja">
+    <meta name="viewport" content="width=device-width"/>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bulma@0.9.4/css/bulma.min.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bulma-extensions@6.2.4/dist/css/bulma-extensions.min.css">
+    <title>Flocke</title>
+    <script src="https://cdn.jsdelivr.net/npm/vue@2.6.11/dist/vue.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/axios@0.19.2/dist/axios.min.js"></script>
+    <script type="text/javascript" src="bluejelly.js"></script>
+    <link rel="icon" type="image/png" href="http://icons.iconarchive.com/icons/paomedia/small-n-flat/64/beer-icon.png">
+  </head>
+  <body style="text-align: center;">
+    <div id="app">
+      
+      <h1 class="title" style="color: #ffffff; text-align: center; margin-top: 0.8em;">Flocke</h1>
+      
+      <table class="table" style="background-color: #27292d; margin: auto;">
+        <tbody>
+          <tr>
+            <th rowspan="2">Red</th>
+            <td colspan="2"><input class="slider is-fullwidth is-danger"  step="1" min="0" :max="2**(ledStatus['resolution'])" v-model.number="ledColor['R']" type="range" @change="sendLight"></td>
+            <!-- <td><input class="button" :class="{'is-loading': status[0]==-1, 'is-primary': status[0]==0, 'is-warning': status[0]==1, 'is-danger': status[0]==2}" @click="chengeStatus(0)">{{statusMessage[status[0]]}}</button></td> -->
+          </tr>
+          <tr>
+            <td>{{Math.round(10*100*(ledColor['R']/(2**(ledStatus['resolution']))))/10}}%</td>
+            <td><input class="input is-small" type="number" min="0" :max="2**(ledStatus['resolution'])" :style="{width:((2**(ledStatus['resolution'])).toString().length+1)+'rem'}" v-model.number="ledColor['R']" @change="sendLight">/{{2**(ledStatus['resolution'])}}</td>
+          </tr>
+          <tr>
+            <th rowspan="2">Green</th>
+            <td colspan="2"><input class="slider is-fullwidth is-success" step="1" min="0" :max="2**(ledStatus['resolution'])" v-model.number="ledColor['G']" type="range" @change="sendLight"></td>
+          </tr>
+          <tr>
+            <td>{{Math.round(10*100*(ledColor['G']/(2**(ledStatus['resolution']))))/10}}%</td>
+            <td><input class="input is-small" type="number" min="0" :max="2**(ledStatus['resolution'])" :style="{width:((2**(ledStatus['resolution'])).toString().length+1)+'rem'}" v-model.number="ledColor['G']" @change="sendLight">/{{2**(ledStatus['resolution'])}}</td>
+          </tr>
+          <tr>
+            <th rowspan="2">Blue</th>
+            <td colspan="2"><input class="slider is-fullwidth is-info"    step="1" min="0" :max="2**(ledStatus['resolution'])" v-model.number="ledColor['B']" type="range" @change="sendLight"></td>
+          </tr>
+          <tr>
+            <td>{{Math.round(10*100*(ledColor['B']/(2**(ledStatus['resolution']))))/10}}%</td>
+            <td><input class="input is-small" type="number" min="0" :max="2**(ledStatus['resolution'])" :style="{width:((2**(ledStatus['resolution'])).toString().length+1)+'rem'}" v-model.number="ledColor['B']" @change="sendLight">/{{2**(ledStatus['resolution'])}}</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <!-- <button v-on:click="searchBLE">{{isConnectedBLE?"接続されています":"接続してください"}}</button> -->
+      <!-- <button v-on:click="readValueBLE">お気に入り</button> -->
+      <!-- <button v-on:click="readValueBLE">登録</button> -->
+      <!-- <button>設定</button> -->
+      
+      <div v-if="isStarActive" style="position: fixed; opacity: 0.6; top: 0; left: 0; width: 100%; height: 100%; background-color: #000000;">
+        <div v-for="l in ledList" class="columns">
+          <div class="column is-four-fifths" style="background-color: rgb(100, 100, 100)">is-four-fifths</div>
+        </div>
+      </div>
+    </div>
+  </body>
+</html>
+<script>
+  // UUID
+  const SERVICE_UUID = "4fafc201-1fb5-459e-8fcc-c5c9c331914b";
+  const RX_CHARACTERISTIC_UUID = "14d3196d-c870-45ef-bf37-008759851148";
+  const TX_CHARACTERISTIC_UUID = "14d3196d-c870-45ef-bf37-008759851148";
+
+  // Characteristic
+  let txCharacteristic;
+  let rxCharacteristic;
+
+  let searchButton;
+  let readButton;
+
+  let loading;
+
+  //グローバル変数に変更した
+  let message;
+
+  const ble = new BlueJelly();
+
+  const app = new Vue({
+    el: "#app",
+    data() {
+      return{
+        ledColor: {
+          R: 50,
+          G: 50,
+          B: 50,
+        },
+        ledStatus: {
+          frequency: 1000,
+          resolution: 8,
+        },
+        ledList: [
+          { "title": "Default",
+            R: 0,
+            G: 0,
+            B: 0,},
+          { "title": "1",
+            R: 0,
+            G: 0,
+            B: 0,},
+          { "title": "2",
+            R: 0,
+            G: 0,
+            B: 0,},
+          { "title": "3",
+            R: 0,
+            G: 0,
+            B: 0,},
+          { "title": "4",
+            R: 0,
+            G: 0,
+            B: 0,},
+          { "title": "5",
+            R: 0,
+            G: 0,
+            B: 0,}
+        ],
+        isMenuActive: false,
+        isStarActive: false,
+        isConnectedBLE: false,
+        isConnectedWifi: false,
+      };
+    },
+    methods: {
+      chengeStatus(id) {
+        // const setStatus = (this.status[id] + 1) % 3;
+        // axios.get('status/' + id + '/' + setStatus).then(() => {
+        //   this.getStatus();
+        // });
+      },
+      getStatus(){
+        // console.log("getStatus");
+        // axios.get('status').then((res) => {
+        //   console.log("response");
+        //   console.log(res);
+        //   this.status = res.data.status;
+        //   console.log(this.status);
+        //   /* console.log(res.data.status); */
+        // });
+      },
+      getStatusRepetition(){
+        // this.getStatus();
+        // setTimeout(this.getStatusRepetition, 1000);
+      },
+      sendLight(){
+        console.log("R: " + this.ledColor["R"] + ", G: " + this.ledColor["G"] + ", B: " + this.ledColor["B"]);
+        // this.getStatus();
+        // setTimeout(this.getStatusRepetition, 1000);
+        axios.get('http://flocke.local/light?R='+this.ledColor["R"]+'&G='+this.ledColor["G"]+'&B='+this.ledColor["B"]).then(() => {
+          // this.getStatus();
+        });
+      },
+      
+      searchBLE() {
+
+        ble.scan('UUID1')
+        .then(() => { 
+          ble.connectGATT('UUID1');
+        })
+        .then(() => { 
+          ble.read('UUID1');
+        })
+      },    
+                    
+                    // search & connect
+                    searchBLE_() {
+
+                      // acceptAllDevicesの場合optionalServicesが必要みたい
+                      navigator.bluetooth.requestDevice({
+                        optionalServices:[SERVICE_UUID],
+                        acceptAllDevices:true
+                      })
+
+                        .then(device => { 
+                          console.log("devicename:" + device.name);
+                          console.log("id:" + device.id);
+
+                          // 選択したデバイスに接続
+                          return device.gatt.connect();
+                        })
+
+                        .then(server => {
+                          console.log("success:connect to device");
+
+                          // UUIDに合致するサービス(機能)を取得
+                          return server.getPrimaryService(SERVICE_UUID);
+                        })
+
+                        .then(server => {
+                          console.log("aaaaaaaaaaaaaaaaaaaaa");
+                          this.isConnectedBLE=true;
+                        })
+
+                        // .then(server => {
+                        //   let message;
+                        //   try {
+                        //     rxCharacteristic.readValue()
+                        //       .then(value => {
+                        //         message = value.buffer;
+                        //         console.log(new Uint8Array(message));
+                        //         var value = new TextDecoder("utf-8").decode(message)
+                        //         var num = parseInt(value, 10);
+                        //         console.log(num);
+                        //         // document.getElementById("data-form").value = new TextDecoder("utf-8").decode(message);
+                        //       });
+                        //   }
+                        //   catch (e) {
+                        //     console.log(e);
+                        //   }
+                        // })
+
+                        // .then(server => {
+                        //   console.log("success:connect to device");
+
+                        //   // UUIDに合致するサービス(機能)を取得
+                        //   return server.getPrimaryService(SERVICE_UUID);
+                        // })
+
+                        // .then(service => {
+                        //   console.log("success:service");
+                        //   // UUIDに合致するキャラクタリスティック(サービスが扱うデータ)を取得
+                        //   // 配列で複数のキャラクタリスティックの取得が可能
+                        //   return Promise.all([
+                        //     service.getCharacteristic(RX_CHARACTERISTIC_UUID),
+                        //     service.getCharacteristic(TX_CHARACTERISTIC_UUID)
+                        //   ]);
+
+                        // })
+                        // .then(characteristic => {
+                        //   console.log("success:txcharacteristic");
+
+                        //   rxCharacteristic = characteristic[0];
+                        //   txCharacteristic = characteristic[1];
+
+                        //   console.log("success:connect BLE");      
+                        //   loading = "hide";
+                        // })
+
+                        .catch(error => {
+                          console.log("Error : " + error);
+
+                          // loading非表示
+                          loading = "hide";
+                        });
+                    }
+
+                    ,
+                    readValueBLE() {
+                      let message;
+
+                      try {
+                        rxCharacteristic.readValue()
+                          .then(value => {
+                            message = value.buffer;
+                            console.log(new Uint8Array(message));
+                            var value = new TextDecoder("utf-8").decode(message)
+                            var num = parseInt(value, 10);
+                            console.log(num);
+                            // document.getElementById("data-form").value = new TextDecoder("utf-8").decode(message);
+                          });
+                      }
+                      catch (e) {
+                        console.log(e);
+                      }
+                    },
+
+                     writeValueBLE() {
+                      // var form_d = document.getElementById("data-form").value;
+                      // var ary_u8 = new Uint8Array( new TextEncoder("utf-8").encode(form_d) );
+                      // console.log(ary_u8);
+                      // try {
+                      //   txCharacteristic.writeValue(ary_u8);
+                      // }
+                      // catch (e) {
+                      //   console.log(e);
+                      // }
+                    }
+      
+      ,
+      getStatus() {
+        axios.get('http://flocke.local/getinfo', {timeout: 2500}).then((res) => {
+          console.log("response");
+          console.log(res);
+          this.status = res.data.status;
+          console.log(this.status);
+          isConnectedWifi = true;
+          /* console.log(res.data.status); */
+        });
+      },
+      infoloop() {
+        // this.getStatus();
+        this.sendLight();
+        setTimeout(this.infoloop, 5000);
+      }
+    },
+    created : function(){
+      // this.getStatusRepetition();
+      ble.setUUID("UUID1",   SERVICE_UUID, RX_CHARACTERISTIC_UUID);
+      ble.onScan = function (deviceName) {
+        console.log(deviceName + " connected");
+      }
+      ble.onConnectGATT = function (uuid) {
+        console.log('> connected GATT!');
+
+        console.log(uuid);
+        console.log("connected GATT!");
+      }
+      ble.onRead = function (data, uuid){
+        //フォーマットに従って値を取得
+        value = data.getInt16(0);//8bitの場合のフォーマット
+
+        //コンソールに値を表示
+        console.log(uuid);
+        console.log(value);
+      }
+      this.infoloop();
+    }
+  })
+</script>
+<style>
+  tr * {
+    vertical-align: middle !important;
+  }
+  tr th {
+    color: #ffffff !important;
+  }
+  tr td {
+    color: #ffffff !important;
+    white-space: nowrap;
+  }
+  button {
+    width: 11em;
+    height: 2.1em;
+    padding-top:    calc(.3em - 1px);
+    padding-bottom: calc(.3em - 1px);
+  }
+</style>
